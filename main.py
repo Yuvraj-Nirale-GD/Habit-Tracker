@@ -11,11 +11,36 @@
     
 #     NOTE: This is the precursor to the planned GUI version. 
 # """
-
+import streamlit as st
 from datetime import date, datetime
 import sqlite3
+import google.generativeai as gemini
+try:
+    api_key = st.secrets["AI_API_KEY"]
+    gemini.configure(api_key = api_key)
+    model = gemini.GenerativeModel('gemini-2.5-flash')
+except KeyError:
+    st.error("API key not found, Add it to your Secrets.")
 
-Db_habit = sqlite3.connect('habits.db')
+
+def get_ai_review(data_summary):
+    prompt = f"""
+    You are an Teacher and mentor, and coach.
+    You are brutally honest, no-sugarcoated analyst.
+    Analyze the following habit tracking data for the user.
+    If the Consistency is low, call out his laziness.
+    if the efforts are low even when Done is checked, call it out.
+    provide actionable, hard-hitting feedback.
+    
+    Data : {data_summary}
+    """
+    response = model.generate_content(prompt)
+    return response.text
+
+def get_db_connection():
+    return sqlite3.connect('habits.db', check_same_thread = False)
+
+Db_habit = get_db_connection()
 cursor = Db_habit.cursor()
 # cursor.execute(' DROP TABLE Daily_Log;'
 # )
@@ -23,7 +48,7 @@ cursor = Db_habit.cursor()
 cursor.execute('''
                CREATE TABLE IF NOT EXISTS habits(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                Task TEXT,
+                Task TEXT UNIQUE,
                 Description TEXT,
                 Creation_Date TEXT
                )'''
@@ -40,110 +65,93 @@ cursor.execute('''
             )
 Db_habit.commit()
 
-def  Create_Habit():
-    start_date = date.today().strftime("%Y-%m-%d") # strftime to format date in YYYY-MM-DD
-    
-    while True:
-        habit_name = input("Create a Task: ").strip().lower()
+st.set_page_config(page_title= "Iron-Habit", layout= "wide")
+st.title("Iron Habit Tracker")
 
-        if habit_name == '':
-            print("Task cannot be empty")
-            continue
-        else:
-            break
-    Description = input("Enter Description for the Habit: ").strip()
-    # Check if habit already exists
-    cursor.execute('SELECT ID FROM habits WHERE task = ?',(habit_name,))
+tab1, tab2 , tab3 = st.tabs(["Daily Log", "Manage Task", "Analysis"])
 
-    existing_entry = cursor.fetchone() #if fetchone returns None, means no existing entry
-
-    if existing_entry:
-        print(f"You have already logged the habit '{habit_name}' ")
-    else:
-        cursor.execute('''
-                       INSERT INTO habits(Task, Description, Creation_Date)
-                       VALUES (?, ?, ?)''',(habit_name, Description, start_date))
-
-        Db_habit.commit()
-        print(f"Habit '{habit_name}' created successfully!")
-    
-     
-def Daily_Log_Insert():
-    today_date= date.today().strftime("%Y-%m-%d")
-
+with tab1:
+    st.header("Daily Log")
     cursor.execute('SELECT id, Task, Description FROM habits')
-    habits = cursor.fetchall() # habit is tuple
+    habits = cursor.fetchall() # store all the data fetched in habits as a tuple
 
     if not habits:
-        print(f"There is no Task logged")
-        return
-        
-    for habit in habits:
-        habit_id, habit_name, dec = habit
+        st.info(f"There is no Task logged")
+    else :
+        with st.form("Daily_Checklist_form"):
+            for h_id, h_name, h_desc in habits:
+                col1, col2, col3 = st.columns([2, 1, 2])
+                with col1:
+                    st.subheader(f"Task : {h_name.upper()}")
+                    st.caption(h_desc)
+                with col2:
+                    st.checkbox(f"Done :", key = f"status_{h_id}")
+                with col3:
+                    st.slider("Select your Efforts :",0 , 10 , 2, key = f"effort_{h_id}")
+                st.divider() 
+            
+            if st.form_submit_button("Submit Logs"):
+                today_date = date.today().strftime("%Y-%m-%d")
+            
+                for h_id, h_name, _ in habits:
+                    
+                    is_done_val = st.session_state[f"status_{h_id}"] # Geting all values directly from session_state
+                    effort_val = st.session_state[f"effort_{h_id}"]
+                    
+                    # Check if this specific habit was already logged today
+                    cursor.execute('''
+                                   INSERT OR REPLACE INTO Daily_Log (habit_id, date, status, efforts) 
+                                   VALUES (?, ?, ?, ?)''',(h_id, today_date, is_done_val, effort_val))
+                                   
+                Db_habit.commit()
+                
+                st.success(f"Successfully updated")
 
-        print(f"Task : {habit_name.upper()}\n Description = ({dec})")
-        status = input(f"Did you complete '{habit_name}' today? (y/n): ").strip().lower()
-        
-        is_done = 1 if status == 'y' else 0
-        effort = 0
 
-        if is_done:
-            while True:
+with tab2:
+    st.header("Add new Task")    
+    with st.form("Create_New_Task"):
+
+        habit_name = st.text_input(("Create a Task: ").strip().lower())
+        Description = st.text_input("Enter Description for the Habit: ")
+
+        if st.form_submit_button("Create Task"):
+
+        # Check if habit already exists
+            if habit_name :
                 try:
-                    effort = int(input("enter Eforts you've Put(0-10) :"))
-                    if 0 <= effort <= 10:
-                        break
-                except ValueError : pass
-        
-        cursor.execute('''
-                INSERT INTO Daily_Log(habit_id, date, status, efforts)
-                VALUES (?,?,?,?)''', (habit_id, today_date, is_done, effort))
-        Db_habit.commit()
-        print(f"Task Logged Successfully")
+                    cursor.execute('''
+                                INSERT INTO habits(Task, Description, Creation_Date)
+                                VALUES (?, ?, ?)''',(habit_name, Description, date.today().strftime("%Y-%m-%d")))
 
-def Analysis():
-    cursor.execute('SELECT id, Task, Creation_Date FROM habits')
-    habit = cursor.fetchall()
+                    Db_habit.commit()
+                    st.success(f"Habit '{habit_name}' created successfully!")
+                except sqlite3.IntegrityError:
+                    st.error(" Task Already Exists!")
+            else:
+                st.warning("Task name cannot be empty")
 
-    for hbt in habit:
-        h_id = hbt[0]
-        name=hbt[1]
-        crt_dt = hbt[2]
+with tab3:
+    st.header("Performance Analysis")
+    cursor.execute('''
+                   SELECT h.Task, COUNT(l.id),AVG(l.efforts)
+                   FROM habits h
+                   LEFT JOIN Daily_Log l ON h.id = l.habit_id AND l.status = 1
+                   GROUP BY h.id
+                   ''')
+    summary_results = cursor.fetchall()
 
-        start_date = datetime.strptime(crt_dt, "%Y-%m-%d").date() #coverting string from database back to date 
-        days_passed = (date.today() - start_date).days + 1 # adding one for today
+    report_txt =""
+    for task, count, avg_efforts in summary_results:
+        Avg_efforts_str = f"{avg_efforts:.1f}" if avg_efforts else "0.0"
+        st.metric(label=task.upper(), value = f"{count} days", delta = f"Average Efforts : {Avg_efforts_str}")
+        report_txt += f"Task : {task}, Completed: {count} times, Average Efforts : {Avg_efforts_str}\n"
 
-        cursor.execute('SELECT COUNT(*), AVG(efforts) FROM Daily_Log WHERE habit_id =? AND status =1', (h_id,))
-        row = cursor.fetchone()
-        totalCount= row[0]
-        Average_effort = row[1] if row[1] else 0
-
-    
-
-        Consistancy = (totalCount/days_passed)*100
-
-        print(f"Task: {name.upper()}")
-        print(f"   Since: {start_date} ({days_passed} days ago)")
-        print(f"   Done: {totalCount} times")
-        print(f"   Consistency: {Consistancy:.1f}%")
-        print(f"   Average Effort: {Average_effort:.1f}/10")
-
-        if Consistancy < 50:
-            print("you are not putting your all efforts")
-        elif 50< Consistancy <70:
-            print(" you can do more, why are you not pushing your limits")
-        else:
-            print(" congrats! You are above your other competitors")
-
-
-while True:
-    print("\n1: Create Task | 2: Daily Check | 3: Analysis | 4: Exit")
-    try:
-        choice = int(input("Choose Operation: "))
-        if choice == 1: Create_Habit()
-        elif choice == 2: Daily_Log_Insert()
-        elif choice == 3: Analysis()
-        elif choice == 4: break
-        else: print("Invalid Input")
-    except ValueError:
-        print("Please enter a number.")
+    st.divider()
+    if st.button("Get Your Analyzed Report"):
+        with st.spinner(" Getting Your Feedback From AI"):
+            try:
+                feedback = get_ai_review(report_txt)
+                st.markdown(f"### FeedBack\n{feedback}")
+            except Exception as e :
+                st.error(f"AI faild to Respond. error in Code:{e}")
