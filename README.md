@@ -1,4 +1,4 @@
-# 🛡️ Iron-Habit: AI-Powered Discipline Engine
+# 🛡️ Iron-Habit: AI-Powered Habit Tradking Tool
 
 ## Overview
 
@@ -73,6 +73,7 @@ This project was created to understand file handling, database integration, AI i
    ```
    streamlit run main.py
    ```
+--Note: Database is created automatically on first run.
 
 
 

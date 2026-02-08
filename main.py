@@ -11,59 +11,17 @@
     
 #     NOTE: This is the precursor to the planned GUI version. 
 # """
-import streamlit as st
 from datetime import date, datetime
+from DataBase import init_database, fetch_summary_data
+from AIEngine import get_ai_review
+import streamlit as st
+import pandas as pd
 import sqlite3
-import google.generativeai as gemini
-try:
-    api_key = st.secrets["AI_API_KEY"]
-    gemini.configure(api_key = api_key)
-    model = gemini.GenerativeModel('gemini-2.5-flash')
-except KeyError:
-    st.error("API key not found, Add it to your Secrets.")
 
 
-def get_ai_review(data_summary):
-    prompt = f"""
-    You are an Teacher and mentor, and coach.
-    You are brutally honest, no-sugarcoated analyst.
-    Analyze the following habit tracking data for the user.
-    If the Consistency is low, call out his laziness.
-    if the efforts are low even when Done is checked, call it out.
-    provide actionable, hard-hitting feedback.
-    
-    Data : {data_summary}
-    """
-    response = model.generate_content(prompt)
-    return response.text
 
-def get_db_connection():
-    return sqlite3.connect('habits.db', check_same_thread = False)
-
-Db_habit = get_db_connection()
+Db_habit = init_database()
 cursor = Db_habit.cursor()
-# cursor.execute(' DROP TABLE Daily_Log;'
-# )
-# Db_habit.commit
-cursor.execute('''
-               CREATE TABLE IF NOT EXISTS habits(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                Task TEXT UNIQUE,
-                Description TEXT,
-                Creation_Date TEXT
-               )'''
-            )
-cursor.execute('''
-               CREATE TABLE IF NOT EXISTS Daily_Log(
-               id INTEGER PRIMARY KEY AUTOINCREMENT,
-               habit_id INTEGER,
-               date TEXT,
-               Status BOOLEAN,
-               efforts INTEGER,
-               FOREIGN KEY (habit_id) REFERENCES habits(id)
-               )'''
-            )
-Db_habit.commit()
 
 st.set_page_config(page_title= "Iron-Habit", layout= "wide")
 st.title("Iron Habit Tracker")
@@ -132,20 +90,62 @@ with tab2:
                 st.warning("Task name cannot be empty")
 
 with tab3:
-    st.header("Performance Analysis")
+    st.header("Trends")
+    st.subheader("Over All Analysis")
     cursor.execute('''
-                   SELECT h.Task, COUNT(l.id),AVG(l.efforts)
-                   FROM habits h
-                   LEFT JOIN Daily_Log l ON h.id = l.habit_id AND l.status = 1
-                   GROUP BY h.id
-                   ''')
-    summary_results = cursor.fetchall()
+                   Select date, AVG(efforts) FROM Daily_Log
+                   GROUP BY date
+                   ORDER BY  date ASC
+                   LIMIT 30 ''')
+    chart_Data = cursor.fetchall()
+    if chart_Data:
+        df = pd.DataFrame(chart_Data, columns= ['Date', 'Avg efforts'])
+        df['Date'] = pd.to_datetime(df["Date"])
+        df.set_index('Date', inplace=True)
 
-    report_txt =""
-    for task, count, avg_efforts in summary_results:
-        Avg_efforts_str = f"{avg_efforts:.1f}" if avg_efforts else "0.0"
-        st.metric(label=task.upper(), value = f"{count} days", delta = f"Average Efforts : {Avg_efforts_str}")
-        report_txt += f"Task : {task}, Completed: {count} times, Average Efforts : {Avg_efforts_str}\n"
+        st.line_chart(df)
+    else :
+        st.info("Not enough data Present")
+
+    st.divider()
+
+    st.subheader("Task Analysis")
+    cursor.execute("SELECT Task FROM habits")
+    Tasks = [row[0] for row in cursor.fetchall()]
+
+    if Tasks:
+        selected_task = st.selectbox("Select Task :",Tasks)
+   
+        cursor.execute('''
+                    SELECT date, efforts
+                    FROM Daily_Log l
+                    JOIN habits h ON l.habit_id = h.id
+                    WHERE h.Task = ?
+                    ''', (selected_task,))
+        specific_Data = cursor.fetchall()
+        if specific_Data:
+            specific_df = pd.DataFrame(specific_Data, columns = ('Date', 'Efforts'))
+            specific_df['Date'] = pd.to_datetime(specific_df['Date'])
+            specific_df.set_index('Date',  inplace= True)
+
+            st.scatter_chart(specific_Data)
+        else :
+            st.info("Nothing to See here ")
+    else:
+        st.error("Empty table")
+
+
+    st.divider()
+    st.header("Performance Analysis")
+    summary_results = fetch_summary_data(cursor)
+    if not summary_results:
+        st.info("There is nothing to see")
+    else:
+        report_txt =""
+        for task, count, avg_efforts in summary_results:
+            Avg_efforts_str = f"{avg_efforts:.1f}" if avg_efforts else "0.0"
+            st.metric(label=task.upper(), value = f"{count} days", delta = f"Average Efforts : {Avg_efforts_str}")
+            report_txt += f"Task : {task}, Completed: {count} times, Average Efforts : {Avg_efforts_str}\n"
 
     st.divider()
     if st.button("Get Your Analyzed Report"):
