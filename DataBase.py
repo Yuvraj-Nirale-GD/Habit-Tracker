@@ -24,6 +24,7 @@ def init_database():
                 Status BOOLEAN,
                 efforts INTEGER,
                 FOREIGN KEY (habit_id) REFERENCES habits(id)
+                UNIQUE(habit_id, date)
                 )'''
                 )
     Db_habit.commit()

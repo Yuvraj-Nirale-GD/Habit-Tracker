@@ -7,7 +7,7 @@
 #     The core logic engine for the Habit tracker. This script handles:
 #     1. Database interactions (SQLite).
 #     2. Input sanitization and validation.
-#     3. Mathematical calculation of consistency scores.
+#     
     
 #     NOTE: This is the precursor to the planned GUI version. 
 # """
@@ -70,24 +70,59 @@ with tab2:
     st.header("Add new Task")    
     with st.form("Create_New_Task"):
 
-        habit_name = st.text_input(("Create a Task: ").strip().lower())
+        habit_name = st.text_input("Create a Task: ").strip().lower()
         Description = st.text_input("Enter Description for the Habit: ")
 
         if st.form_submit_button("Create Task"):
 
         # Check if habit already exists
             if habit_name :
-                try:
-                    cursor.execute('''
-                                INSERT INTO habits(Task, Description, Creation_Date)
-                                VALUES (?, ?, ?)''',(habit_name, Description, date.today().strftime("%Y-%m-%d")))
+                cursor.execute('SELECT id FROM habits WHERE Task = ?',(habit_name,))
+                if cursor.fetchone():
+                    st.error("Task Already Exists!")
+                else:
+                    try:
+                        cursor.execute('''
+                                    INSERT INTO habits(Task, Description, Creation_Date)
+                                    VALUES (?, ?, ?)''',(habit_name, Description, date.today().strftime("%Y-%m-%d")))
 
-                    Db_habit.commit()
-                    st.success(f"Habit '{habit_name}' created successfully!")
-                except sqlite3.IntegrityError:
-                    st.error(" Task Already Exists!")
+                        Db_habit.commit()
+                        st.success(f"Habit '{habit_name}' created successfully!")
+                        st.rurun()
+                    except sqlite3.IntegrityError:
+                        st.error(" Task Already Exists!")
             else:
                 st.warning("Task name cannot be empty")
+    st.divider()
+    st.subheader("Delete Task")
+    cursor.execute('SELECT id, Task FROM habits')
+    all_tasks = cursor.fetchall()
+    if not all_tasks:
+        st.info("No Task to Delete")
+    else:
+        task_map = {task: t_id for t_id, task in all_tasks}
+        task_to_delete = st.selectbox("Selects Task to Delete", list(task_map.keys()))
+        st.warning(f"Are you sure you want to delete '{task_to_delete}'? This action cannot be undone.")
+        
+        if st.button(f"Delete {task_to_delete}", type = "secondary"):
+            st.session_state["confirm_delete"] = True
+            if st.session_state.get("confirm_delete"):
+                st.error("Are you sure?")
+                if st.button("Confirm",type= "primary"):
+
+
+                    selected_id = task_map[task_to_delete]
+                    try:
+                        cursor.execute('DELETE FROM Daily_Log WHERE habit_id =?',(selected_id,))
+                        cursor.execute('DELETE FROM habits WHERE id =?',(selected_id,))
+                        Db_habit.commit()
+                        st.success(f"{task_to_delete} deleted successfully")
+                        st.rerun()
+
+
+                    except Exception as e:
+                        st.error(f"Failed to delete the Task: {e}")
+
 
 with tab3:
     st.header("Trends")
@@ -128,7 +163,7 @@ with tab3:
             specific_df['Date'] = pd.to_datetime(specific_df['Date'])
             specific_df.set_index('Date',  inplace= True)
 
-            st.scatter_chart(specific_Data)
+            st.scatter_chart(specific_df)
         else :
             st.info("Nothing to See here ")
     else:
@@ -138,10 +173,10 @@ with tab3:
     st.divider()
     st.header("Performance Analysis")
     summary_results = fetch_summary_data(cursor)
+    report_txt =""
     if not summary_results:
         st.info("There is nothing to see")
     else:
-        report_txt =""
         for task, count, avg_efforts in summary_results:
             Avg_efforts_str = f"{avg_efforts:.1f}" if avg_efforts else "0.0"
             st.metric(label=task.upper(), value = f"{count} days", delta = f"Average Efforts : {Avg_efforts_str}")

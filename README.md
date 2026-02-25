@@ -1,4 +1,4 @@
-# 🛡️ Iron-Habit: AI-Powered Habit Tradking Tool
+# 🛡️ Iron-Habit: AI-Powered Habit Tracking Tool
 
 ## Overview
 
@@ -45,12 +45,12 @@ This project was created to understand file handling, database integration, AI i
 
 
 ### Daily Log Entry
--- ![Iron-Habit Interface](assests/HabitTracker-Daily_Log.jpg)
+-- ![Iron-Habit Interface](assets/HabitTracker-Daily_Log.jpg)
 
--- ![Iron-Habit Task Manager](assests/HabitTracker-TaskManager.png)
+-- ![Iron-Habit Task Manager](assets/HabitTracker-TaskManager.png)
 
 ### AI in Action
-![AI Analysis Demo](assests/HabitTracker-Analysis.gif)
+![AI Analysis Demo](assets/HabitTracker-Analysis.gif)
 
 
 ## How to Run
